@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# PasarGuard Reseller Bot - installer / service manager
+# VNET Bot (PasarGuard Reseller Bot) - installer / service manager
 #
 # Usage (after uploading this project to your own GitHub repo, replace
 # REPO_URL below with your repo's clone URL, then on a fresh Ubuntu VPS):
@@ -11,13 +11,14 @@
 #
 #   cd pasarguard_bot && sudo bash install.sh install
 #
-# Subcommands: install | start | stop | restart | status | logs | update | uninstall
+# After install, use the `vnetbot` shortcut command instead:
+#   vnetbot {install|reconfigure|update|uninstall|start|stop|restart|status|logs}
 #
 set -e
 
-REPO_URL="https://github.com/VnetProject/vnetbot.git"   # <-- change this after you push to GitHub
-APP_DIR="/opt/pasarguardbot"
-SERVICE_NAME="pasarguardbot"
+REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO.git"   # <-- change this after you push to GitHub
+APP_DIR="/opt/vnetbot"
+SERVICE_NAME="vnetbot"
 VENV_DIR="$APP_DIR/venv"
 
 C_GREEN="\033[0;32m"; C_RED="\033[0;31m"; C_YELLOW="\033[0;33m"; C_RESET="\033[0m"
@@ -127,7 +128,7 @@ setup_systemd() {
     info "ساخت سرویس systemd..."
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" << SERVICEEOF
 [Unit]
-Description=PasarGuard Reseller Bot
+Description=VNET Bot (PasarGuard Reseller Bot)
 After=network.target mysql.service
 
 [Service]
@@ -144,7 +145,33 @@ SERVICEEOF
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}"
     systemctl restart "${SERVICE_NAME}"
-    info "سرویس ${SERVICE_NAME} فعال و اجرا شد."
+}
+
+# Symlink so you never need `bash install.sh ...` from a specific folder
+# again - just run `vnetbot <command>` from anywhere, exactly like
+# the well-known VPS installer scripts (marzban, x-ui, ...).
+setup_cli_shortcut() {
+    ln -sf "${APP_DIR}/install.sh" /usr/local/bin/vnetbot
+    chmod +x "${APP_DIR}/install.sh"
+}
+
+# Waits a moment then reports the REAL status - `systemctl restart` returns
+# immediately even if the process crashes 1 second later, so without this
+# check "نصب کامل شد" can print even when the bot is actually down.
+check_service_health() {
+    sleep 3
+    if systemctl is-active --quiet "${SERVICE_NAME}"; then
+        info "سرویس ${SERVICE_NAME} فعال است و در حال اجراست ✅"
+        return 0
+    else
+        error "سرویس ${SERVICE_NAME} بالا نیامد یا کرش کرد ❌ - این ۳۰ خط آخر لاگ دلیلش را نشان می‌دهد:"
+        echo "----------------------------------------------------------------"
+        journalctl -u "${SERVICE_NAME}" -n 30 --no-pager
+        echo "----------------------------------------------------------------"
+        warn "معمولاً دلیلش توکن/آیدی اشتباه یا خطای دیتابیس در config.json است."
+        warn "برای اصلاح توکن/آیدی و تلاش مجدد: vnetbot reconfigure"
+        return 1
+    fi
 }
 
 cmd_install() {
@@ -155,10 +182,23 @@ cmd_install() {
     setup_python_env
     run_bot_installer
     setup_systemd
+    setup_cli_shortcut
     echo
-    info "نصب کامل شد ✅"
-    echo "دستور /admin را در ربات خود در تلگرام ارسال کنید تا پنل مدیریت باز شود."
-    echo "برای دیدن لاگ‌ها: bash install.sh logs"
+    check_service_health && {
+        info "نصب کامل شد ✅"
+        echo "دستور /admin را در ربات خود در تلگرام ارسال کنید تا پنل مدیریت باز شود."
+        echo "از این به بعد، از هرجای سرور می‌توانید بنویسید: vnetbot logs | status | restart | ..."
+    }
+}
+
+cmd_reconfigure() {
+    require_root
+    cd "$APP_DIR" || { error "پوشه ${APP_DIR} پیدا نشد - ابتدا install را اجرا کنید."; exit 1; }
+    warn "توکن و آیدی ادمین فعلی حذف می‌شود و دوباره از شما پرسیده می‌شود (تنظیمات دیتابیس دست‌نخورده می‌ماند)."
+    rm -f config.json
+    run_bot_installer
+    systemctl restart "${SERVICE_NAME}"
+    check_service_health
 }
 
 cmd_update() {
@@ -166,8 +206,9 @@ cmd_update() {
     info "بروزرسانی سورس و کتابخانه‌ها..."
     fetch_source
     setup_python_env
+    setup_cli_shortcut
     systemctl restart "${SERVICE_NAME}"
-    info "بروزرسانی انجام شد و سرویس ری‌استارت شد."
+    check_service_health
 }
 
 cmd_uninstall() {
@@ -181,21 +222,23 @@ cmd_uninstall() {
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     systemctl daemon-reload
+    rm -f /usr/local/bin/vnetbot
     rm -rf "$APP_DIR"
     info "حذف شد."
 }
 
 case "${1:-}" in
-    install)   cmd_install ;;
-    update)    cmd_update ;;
-    uninstall) cmd_uninstall ;;
+    install)      cmd_install ;;
+    update)       cmd_update ;;
+    reconfigure)  cmd_reconfigure ;;
+    uninstall)    cmd_uninstall ;;
     start)     require_root; systemctl start "${SERVICE_NAME}"; info "started" ;;
     stop)      require_root; systemctl stop "${SERVICE_NAME}"; info "stopped" ;;
     restart)   require_root; systemctl restart "${SERVICE_NAME}"; info "restarted" ;;
     status)    systemctl status "${SERVICE_NAME}" --no-pager ;;
     logs)      journalctl -u "${SERVICE_NAME}" -f ;;
     *)
-        echo "استفاده: bash install.sh {install|update|uninstall|start|stop|restart|status|logs}"
+        echo "استفاده: vnetbot {install|reconfigure|update|uninstall|start|stop|restart|status|logs}"
         exit 1
         ;;
 esac
