@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+config.json
+.db_created
+.db_name
+.db_user
+.db_pass
+*.log
+.env
