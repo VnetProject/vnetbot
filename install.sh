@@ -16,7 +16,7 @@
 #
 set -e
 
-REPO_URL="https://github.com/YOUR_USERNAME/YOUR_REPO.git"   # <-- change this after you push to GitHub
+REPO_URL="https://github.com/VnetProject/vnetbot.git"   # <-- change this after you push to GitHub
 APP_DIR="/opt/vnetbot"
 SERVICE_NAME="vnetbot"
 VENV_DIR="$APP_DIR/venv"
